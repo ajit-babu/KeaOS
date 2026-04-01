@@ -1,0 +1,5 @@
+*.o
+kernel.elf
+keaos.iso
+iso/boot/kernel.elf
+iso/boot/grub/grub.cfg
