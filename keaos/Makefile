@@ -2,43 +2,54 @@
 CC      := i686-elf-gcc
 LD      := i686-elf-gcc
 ASM     := nasm
+
 CFLAGS  := -ffreestanding -O2 -Wall -Wextra -g
 LDFLAGS := -ffreestanding -nostdlib -lgcc
 
+# Source files
 KERNEL_C   := $(wildcard kernel/*.c)
-KERNEL_OBJ := $(KERNEL_C:.c=.o) boot/boot.o
+KERNEL_OBJ := $(KERNEL_C:.c=.o)
 
-.PHONY: all run clean iso
+BOOT_OBJ   := boot/boot.o boot/gdt_flush.o
+
+OBJ := $(KERNEL_OBJ) $(BOOT_OBJ)
+
+.PHONY: all run clean iso debug
 
 all: keaos.iso
 
-# Compile each .c file
+# Compile C files
 kernel/%.o: kernel/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Assemble boot.asm
+# Assemble boot files
 boot/boot.o: boot/boot.asm
 	$(ASM) -f elf32 $< -o $@
 
-# Link everything into kernel ELF
-kernel.elf: $(KERNEL_OBJ)
+boot/gdt_flush.o: boot/gdt_flush.asm
+	$(ASM) -f elf32 $< -o $@
+
+# Link kernel
+kernel.elf: $(OBJ)
 	$(LD) -T linker.ld $(LDFLAGS) -o $@ $^
 	@grub-file --is-x86-multiboot $@ && echo "✓ Multiboot OK" || echo "✗ Multiboot FAIL"
 
-# Build bootable ISO
+# Build ISO
 keaos.iso: kernel.elf
+	mkdir -p iso/boot/grub
 	cp kernel.elf iso/boot/kernel.elf
 	cp boot/grub.cfg iso/boot/grub/grub.cfg
-	grub-mkrescue -o keaos.iso iso/ 2>/dev/null
+	grub-mkrescue -o keaos.iso iso/
 	@echo "✓ ISO built: keaos.iso"
 
-# Boot in QEMU
+# Run (safe mode without GTK issues)
 run: keaos.iso
-	qemu-system-i386 -cdrom keaos.iso -m 32M
+	unset LD_LIBRARY_PATH && env -i PATH=/usr/bin:/bin qemu-system-i386 -cdrom keaos.iso -m 32M -display curses
 
-# Debug mode — attach GDB on port 1234
+# Debug mode
 debug: keaos.iso
-	qemu-system-i386 -cdrom keaos.iso -m 32M -s -S &
+	qemu-system-i386 -cdrom keaos.iso -m 32M -s -S
 
+# Clean build
 clean:
-	rm -f $(KERNEL_OBJ) kernel.elf keaos.iso iso/boot/kernel.elf
+	rm -f $(OBJ) kernel.elf keaos.iso iso/boot/kernel.elf
